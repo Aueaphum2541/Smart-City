@@ -1,0 +1,615 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>FloodTwin City Digital Twin</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet" />
+  <script src="https://cdn.jsdelivr.net/npm/three@0.164.1/build/three.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.164.1/examples/js/controls/OrbitControls.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
+  <style>
+    :root {
+      --bg: #07101f;
+      --bg-soft: #0c1a31;
+      --panel: rgba(13, 27, 50, 0.7);
+      --panel-border: rgba(76, 146, 255, 0.2);
+      --text: #e8f6ff;
+      --muted: #96aec7;
+      --cyan: #00d9ff;
+      --turquoise: #2cf1c2;
+      --danger: #ff4b6e;
+      --warn: #ffc857;
+      --safe: #32d17a;
+      --shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
+    }
+    body.light {
+      --bg: #e9f4ff;
+      --bg-soft: #cfe8ff;
+      --panel: rgba(255, 255, 255, 0.8);
+      --panel-border: rgba(0, 102, 255, 0.25);
+      --text: #052346;
+      --muted: #3b5d84;
+      --shadow: 0 10px 25px rgba(38, 74, 138, 0.16);
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; height: 100%; font-family: 'Inter', sans-serif; background: radial-gradient(circle at top right, #11396a 0%, var(--bg) 38%, #050a16 100%); color: var(--text); }
+    body.light { background: radial-gradient(circle at top right, #d2f0ff 0%, #edf7ff 40%, #d7ebff 100%); }
+
+    .loader {
+      position: fixed; inset: 0; display: grid; place-items: center; z-index: 9999;
+      background: linear-gradient(135deg, #061125, #0f2f57);
+      transition: opacity .5s ease, visibility .5s ease;
+    }
+    .loader.hidden { opacity: 0; visibility: hidden; }
+    .loader .pulse {
+      width: 90px; height: 90px; border-radius: 50%; border: 3px solid rgba(0, 217, 255, .2);
+      border-top-color: var(--cyan); animation: spin 1s linear infinite;
+      box-shadow: 0 0 30px rgba(0, 217, 255, 0.5);
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    .app { display: grid; grid-template-columns: 260px 1fr; grid-template-rows: 70px 1fr; height: 100vh; gap: 12px; padding: 12px; }
+    .topbar, .sidebar, .content > section, .summary-card, .panel, .widget, .table-wrap, .logs, .insight {
+      background: var(--panel); border: 1px solid var(--panel-border); border-radius: 16px; backdrop-filter: blur(14px); box-shadow: var(--shadow);
+    }
+
+    .topbar {
+      grid-column: 1 / -1; display: flex; justify-content: space-between; align-items: center; padding: 0 18px;
+    }
+    .brand { display: flex; align-items: center; gap: 12px; font-weight: 700; }
+    .brand .dot { width: 12px; height: 12px; border-radius: 50%; background: var(--turquoise); box-shadow: 0 0 12px var(--turquoise); }
+    .top-actions { display: flex; align-items: center; gap: 10px; color: var(--muted); }
+    .badge { padding: 6px 10px; border-radius: 999px; font-size: 12px; border: 1px solid rgba(44,241,194,.4); background: rgba(44,241,194,.12); color: #8effe2; }
+    .icon-btn { border: none; color: var(--text); background: rgba(0,0,0,.2); border: 1px solid var(--panel-border); border-radius: 10px; padding: 8px 10px; cursor: pointer; }
+
+    .sidebar { grid-row: 2; padding: 14px; overflow: auto; }
+    .menu-title { color: var(--muted); text-transform: uppercase; font-size: 11px; margin: 10px 8px; letter-spacing: .13em; }
+    .nav-item {
+      padding: 11px 12px; margin-bottom: 6px; border-radius: 12px; display: flex; gap: 10px; align-items: center; cursor: pointer;
+      border: 1px solid transparent; transition: .2s ease;
+    }
+    .nav-item:hover, .nav-item.active { background: rgba(0, 217, 255, 0.11); border-color: rgba(0, 217, 255, 0.33); transform: translateX(2px); }
+
+    .content { grid-row: 2; display: grid; grid-template-rows: auto auto 1fr; gap: 12px; min-height: 0; overflow: hidden; }
+    .summary { display: grid; grid-template-columns: repeat(8, minmax(120px, 1fr)); gap: 10px; }
+    .summary-card { padding: 11px; min-height: 88px; position: relative; overflow: hidden; }
+    .summary-card h4 { margin: 0; font-size: 11px; color: var(--muted); font-weight: 500; }
+    .summary-card .value { margin-top: 6px; font-size: 20px; font-weight: 700; }
+    .summary-card::after { content: ''; position: absolute; right: -20px; top: -20px; width: 80px; height: 80px; background: radial-gradient(circle, rgba(0,217,255,.2), transparent 65%); }
+
+    .layout { display: grid; grid-template-columns: 2.2fr 1fr; gap: 12px; min-height: 0; }
+    .left-stack, .right-stack { display: grid; gap: 12px; min-height: 0; }
+    .left-stack { grid-template-rows: 440px 1fr; }
+    .right-stack { grid-template-rows: repeat(2, minmax(210px, 1fr)); }
+    .panel { padding: 12px; overflow: hidden; }
+    .panel h3 { margin: 0 0 10px; font-size: 14px; }
+
+    #city3d { width: 100%; height: calc(100% - 30px); border-radius: 12px; overflow: hidden; border: 1px solid rgba(0, 217, 255, .15); }
+
+    .tabs { display: flex; gap: 8px; flex-wrap: wrap; }
+    .tab-btn { padding: 7px 11px; border-radius: 999px; border: 1px solid var(--panel-border); background: rgba(255,255,255,.03); color: var(--text); cursor: pointer; }
+    .tab-btn.active { background: rgba(0,217,255,.16); border-color: rgba(0,217,255,.5); }
+    .tab-section { display: none; margin-top: 10px; }
+    .tab-section.active { display: block; }
+
+    .sensor-grid, .chart-grid, .evac-grid, .report-grid { display: grid; gap: 10px; }
+    .sensor-grid { grid-template-columns: repeat(2, minmax(140px,1fr)); }
+    .widget { padding: 10px; }
+    .widget small { color: var(--muted); }
+
+    .controls { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+    .controls button { border: 1px solid var(--panel-border); background: rgba(255,255,255,.05); color: var(--text); border-radius: 10px; padding: 8px 10px; cursor: pointer; }
+
+    .chart-grid { grid-template-columns: 1fr 1fr; }
+    canvas { width: 100% !important; height: 180px !important; }
+    .table-wrap { max-height: 250px; overflow: auto; }
+    table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    th, td { padding: 8px; border-bottom: 1px solid rgba(125,166,219,0.18); text-align: left; }
+    th { color: var(--muted); position: sticky; top: 0; background: rgba(9,20,38,.95); }
+
+    .logs { max-height: 190px; overflow: auto; padding: 10px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; }
+    .log-item { padding: 6px 0; border-bottom: 1px dashed rgba(117,174,255,.25); }
+
+    .insight { padding: 12px; line-height: 1.55; color: #d4f8ff; }
+
+    .status-led { display: inline-flex; width: 10px; height: 10px; border-radius: 50%; margin-right: 7px; box-shadow: 0 0 8px currentColor; }
+    .safe { color: var(--safe); }
+    .warning { color: var(--warn); }
+    .danger { color: var(--danger); }
+    .trend { display: flex; justify-content: space-between; align-items: center; }
+    .muted { color: var(--muted); }
+
+    @media (max-width: 1280px) {
+      .summary { grid-template-columns: repeat(4, minmax(120px, 1fr)); }
+      .layout { grid-template-columns: 1fr; }
+      .left-stack { grid-template-rows: 380px auto; }
+    }
+    @media (max-width: 900px) {
+      .app { grid-template-columns: 1fr; grid-template-rows: 70px auto 1fr; }
+      .sidebar { grid-row: 2; max-height: 180px; }
+      .content { grid-row: 3; }
+      .summary { grid-template-columns: repeat(2, minmax(120px, 1fr)); }
+    }
+  </style>
+</head>
+<body>
+  <div class="loader" id="loader"><div class="pulse" title="Loading Smart Flood Digital Twin"></div></div>
+
+  <div class="app">
+    <header class="topbar">
+      <div class="brand"><span class="dot"></span>FloodTwin City Digital Twin</div>
+      <div class="top-actions">
+        <span class="badge">Online • Simulation Mode</span>
+        <span id="clock">--:--:--</span>
+        <button class="icon-btn" id="notifyBtn" title="Notifications">🔔</button>
+        <button class="icon-btn" id="settingBtn" title="Settings">⚙️</button>
+        <button class="icon-btn" id="themeBtn" title="Toggle Theme">🌓</button>
+        <button class="icon-btn" id="fullscreenBtn" title="Full Screen (Mock)">⛶</button>
+      </div>
+    </header>
+
+    <aside class="sidebar">
+      <div class="menu-title">Main Navigation</div>
+      <div class="nav-item active" data-tab="dashboard">🏙️ Dashboard</div>
+      <div class="nav-item" data-tab="city">🧭 3D City View</div>
+      <div class="nav-item" data-tab="analysis">📈 Flood Analysis</div>
+      <div class="nav-item" data-tab="sensor">🛰️ Sensor Simulation</div>
+      <div class="nav-item" data-tab="risk">🗺️ Risk Map</div>
+      <div class="nav-item" data-tab="evac">🚨 Evacuation Planning</div>
+      <div class="nav-item" data-tab="alerts">📋 Alerts & Logs</div>
+      <div class="nav-item" data-tab="reports">🧠 Reports</div>
+      <div class="nav-item" data-tab="settings">⚙️ Settings</div>
+    </aside>
+
+    <main class="content">
+      <section class="summary" id="summaryCards"></section>
+
+      <section class="tabs">
+        <button class="tab-btn active" data-target="dashboard">Overview</button>
+        <button class="tab-btn" data-target="analysis">Analytics</button>
+        <button class="tab-btn" data-target="sensor">Sensors</button>
+        <button class="tab-btn" data-target="risk">Risk</button>
+        <button class="tab-btn" data-target="evac">Evacuation</button>
+        <button class="tab-btn" data-target="alerts">Logs</button>
+        <button class="tab-btn" data-target="reports">Reports</button>
+        <button class="tab-btn" data-target="settings">Settings</button>
+      </section>
+
+      <section class="layout">
+        <div class="left-stack">
+          <div class="panel tab-section active" id="dashboard">
+            <h3>Interactive 3D Smart City Flood Twin</h3>
+            <div id="city3d"></div>
+          </div>
+
+          <div class="panel tab-section" id="analysis">
+            <h3>Flood Analysis & Forecast</h3>
+            <div class="chart-grid">
+              <div class="widget"><canvas id="lineChart"></canvas></div>
+              <div class="widget"><canvas id="barChart"></canvas></div>
+              <div class="widget"><canvas id="donutChart"></canvas></div>
+              <div class="widget">
+                <div class="trend"><span>Temp Trend</span><strong id="trendTemp">--</strong></div>
+                <div class="trend"><span>Humidity Trend</span><strong id="trendHumidity">--</strong></div>
+                <div class="trend"><span>Water Level Trend</span><strong id="trendWater">--</strong></div>
+                <p class="muted" id="predictionBox" style="margin-top:12px;">Prediction initializing...</p>
+              </div>
+            </div>
+          </div>
+
+          <div class="panel tab-section" id="risk">
+            <h3>Risk Map / Zone Analysis</h3>
+            <div class="table-wrap"><table>
+              <thead><tr><th>Zone</th><th>Water (cm)</th><th>Risk</th><th>Population</th><th>Action</th><th>LED</th></tr></thead>
+              <tbody id="zoneTable"></tbody>
+            </table></div>
+          </div>
+
+          <div class="panel tab-section" id="evac">
+            <h3>Evacuation Planning</h3>
+            <div class="evac-grid" style="grid-template-columns:1fr 1fr;">
+              <div class="widget"><strong>Recommended Routes</strong><div id="routeList" class="muted"></div></div>
+              <div class="widget"><strong>Open Shelters</strong><div id="shelterList" class="muted"></div></div>
+              <div class="widget"><strong>Closed Roads</strong><div id="closedRoads" class="muted"></div></div>
+              <div class="widget"><strong>Priority Zones</strong><div id="priorityZones" class="muted"></div></div>
+            </div>
+          </div>
+
+          <div class="panel tab-section" id="alerts">
+            <h3>Alerts & Logs</h3>
+            <div class="logs" id="logBox"></div>
+          </div>
+
+          <div class="panel tab-section" id="reports">
+            <h3>Reports / Analytics Insight</h3>
+            <div class="report-grid" style="grid-template-columns: repeat(2,1fr);">
+              <div class="widget">Current city status: <strong id="cityStatus">Stable</strong></div>
+              <div class="widget">Most critical zone: <strong id="criticalZone">Zone A</strong></div>
+              <div class="widget">Zones affected: <strong id="zonesAffected">0</strong></div>
+              <div class="widget">Next action: <strong id="nextAction">Monitor riverside</strong></div>
+            </div>
+            <div class="insight" id="aiInsight"></div>
+            <div style="margin-top:10px;"><button class="icon-btn" id="exportBtn">Export Report (Mock)</button></div>
+          </div>
+
+          <div class="panel tab-section" id="settings">
+            <h3>System Settings</h3>
+            <div class="widget"><strong>Future Sensor Integration</strong>
+              <p class="muted">Placeholder: Future release will support ESP32 / MQTT / Firebase / REST API for real hardware telemetry ingestion.</p>
+              <button class="icon-btn">Future Sensor Integration</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="right-stack">
+          <div class="panel tab-section active" id="sensor">
+            <h3>Sensor Simulation</h3>
+            <div class="sensor-grid" id="sensorGrid"></div>
+            <div class="controls">
+              <button data-action="start">Start Simulation</button>
+              <button data-action="pause">Pause Simulation</button>
+              <button data-action="reset">Reset</button>
+              <button data-action="random">Random Flood Event</button>
+              <button data-action="rain">Heavy Rain Scenario</button>
+              <button data-action="critical">Critical Alert Scenario</button>
+            </div>
+          </div>
+
+          <div class="panel">
+            <h3>Quick Status</h3>
+            <div class="widget">
+              <p><span class="status-led safe" id="ledOverall"></span><span id="overallText">System nominal.</span></p>
+              <p class="muted">Tooltip: hover summary cards and menu items for details.</p>
+              <p class="muted">Current Rain Intensity: <strong id="rainIntensity">Light</strong></p>
+              <p class="muted">Estimated Evacuation Time: <strong id="evacTime">18 min</strong></p>
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+<script>
+  // ------------------------------
+  // Core mock data model (simulation only)
+  // Prepared for future real sensor integration.
+  // ------------------------------
+  const zones = [
+    { id: 'A', name: 'Riverside', pop: 1800, water: 42 },
+    { id: 'B', name: 'Market', pop: 2300, water: 34 },
+    { id: 'C', name: 'Residential', pop: 3800, water: 29 },
+    { id: 'D', name: 'School', pop: 1200, water: 26 },
+    { id: 'E', name: 'Hospital', pop: 900, water: 24 },
+    { id: 'F', name: 'Evac Center', pop: 600, water: 20 }
+  ];
+
+  const state = {
+    running: true,
+    water: 38,
+    temperature: 30,
+    humidity: 73,
+    rain: 'Moderate',
+    alerts: [],
+    lineSeries: Array.from({length: 12}, (_, i) => 20 + i * 2)
+  };
+
+  const summaryKeys = [
+    'Flooded Zones','Safe Zones','Warning Zones','Evac Centers Active',
+    'Estimated Affected Population','Current Water Level','Rainfall Intensity','System Status'
+  ];
+
+  let scene, renderer, camera, controls, waterMesh, zoneIndicators = [];
+  let lineChart, barChart, donutChart;
+  let timer;
+
+  function riskByWater(w) { return w >= 70 ? 'Danger' : w >= 45 ? 'Warning' : 'Safe'; }
+  function ledByRisk(r) { return r === 'Danger' ? 'Red' : r === 'Warning' ? 'Yellow' : 'Green'; }
+  function actionByRisk(r) { return r === 'Danger' ? 'Immediate Evacuation' : r === 'Warning' ? 'Prepare Evacuation' : 'Monitor'; }
+
+  // ------------------------------
+  // 3D city scene initialization
+  // ------------------------------
+  function init3DCity() {
+    const root = document.getElementById('city3d');
+    scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x08142a);
+
+    camera = new THREE.PerspectiveCamera(60, root.clientWidth / root.clientHeight, 0.1, 1000);
+    camera.position.set(30, 32, 34);
+
+    renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.setSize(root.clientWidth, root.clientHeight);
+    root.appendChild(renderer.domElement);
+
+    controls = new THREE.OrbitControls(camera, renderer.domElement);
+    controls.enableDamping = true;
+
+    scene.add(new THREE.HemisphereLight(0x67dfff, 0x0d1322, 1.2));
+    const dir = new THREE.DirectionalLight(0xffffff, 0.8); dir.position.set(40, 50, 30); scene.add(dir);
+
+    const ground = new THREE.Mesh(new THREE.PlaneGeometry(90, 90), new THREE.MeshStandardMaterial({ color: 0x10243f }));
+    ground.rotation.x = -Math.PI / 2; scene.add(ground);
+
+    // River/canal
+    const river = new THREE.Mesh(new THREE.BoxGeometry(65, 0.4, 12), new THREE.MeshStandardMaterial({ color: 0x0a5ca9 }));
+    river.position.set(0, 0.22, -18); scene.add(river);
+
+    // Dynamic water plane (flood level)
+    waterMesh = new THREE.Mesh(new THREE.PlaneGeometry(80, 80), new THREE.MeshPhysicalMaterial({ color: 0x2ea4ff, transparent: true, opacity: 0.28 }));
+    waterMesh.rotation.x = -Math.PI / 2; waterMesh.position.y = 0.2; scene.add(waterMesh);
+
+    // Roads
+    const roadMat = new THREE.MeshStandardMaterial({ color: 0x1e2b43 });
+    [-20, 0, 20].forEach(x => { const r = new THREE.Mesh(new THREE.BoxGeometry(5, 0.1, 85), roadMat); r.position.set(x, 0.06, 0); scene.add(r); });
+    [-25, 0, 25].forEach(z => { const r = new THREE.Mesh(new THREE.BoxGeometry(85, 0.1, 5), roadMat); r.position.set(0, 0.06, z); scene.add(r); });
+
+    // Bridge
+    const bridge = new THREE.Mesh(new THREE.BoxGeometry(20, 0.8, 4), new THREE.MeshStandardMaterial({ color: 0x6e89ab }));
+    bridge.position.set(15, 1.2, -18); scene.add(bridge);
+
+    // Buildings, hospitals, school, shelters
+    const buildMat = new THREE.MeshStandardMaterial({ color: 0x84a6c9 });
+    for (let i = -30; i <= 30; i += 12) {
+      for (let j = -8; j <= 30; j += 12) {
+        const h = 4 + Math.random() * 12;
+        const b = new THREE.Mesh(new THREE.BoxGeometry(7, h, 7), buildMat);
+        b.position.set(i, h / 2, j);
+        scene.add(b);
+      }
+    }
+
+    // Zone indicators and evacuation route lines
+    const zonePos = [
+      [-30, -5], [-10, -5], [10, -5], [28, -5], [10, 18], [-20, 18]
+    ];
+    zones.forEach((z, idx) => {
+      const m = new THREE.Mesh(new THREE.CylinderGeometry(1.1, 1.1, 0.4, 24), new THREE.MeshStandardMaterial({ color: 0x32d17a, emissive: 0x0 }));
+      m.position.set(zonePos[idx][0], 0.25, zonePos[idx][1]);
+      scene.add(m); zoneIndicators.push(m);
+
+      const pin = new THREE.Mesh(new THREE.SphereGeometry(0.5, 14, 14), new THREE.MeshStandardMaterial({ color: 0x00d9ff, emissive: 0x005c6d }));
+      pin.position.set(zonePos[idx][0], 2.1, zonePos[idx][1]); scene.add(pin);
+    });
+
+    const routeMat = new THREE.LineBasicMaterial({ color: 0xffc857 });
+    const routePoints = [new THREE.Vector3(-10, 0.4, -5), new THREE.Vector3(-20, 0.4, 18), new THREE.Vector3(-25, 0.4, 20)];
+    scene.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(routePoints), routeMat));
+
+    window.addEventListener('resize', () => {
+      camera.aspect = root.clientWidth / root.clientHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(root.clientWidth, root.clientHeight);
+    });
+
+    animate();
+  }
+
+  function animate() {
+    requestAnimationFrame(animate);
+    waterMesh.material.opacity = 0.22 + Math.sin(Date.now() * 0.0015) * 0.05;
+    controls.update();
+    renderer.render(scene, camera);
+  }
+
+  // ------------------------------
+  // Chart rendering and updates
+  // ------------------------------
+  function renderCharts() {
+    lineChart = new Chart(document.getElementById('lineChart'), {
+      type: 'line',
+      data: { labels: Array.from({length:12}, (_,i)=>`T-${11-i}`), datasets: [{ label: 'Water Level (cm)', data: state.lineSeries, borderColor: '#00d9ff', tension: 0.35 }] },
+      options: { plugins:{legend:{labels:{color:'#b8daff'}}}, scales:{x:{ticks:{color:'#9fc1df'}}, y:{ticks:{color:'#9fc1df'}}} }
+    });
+
+    barChart = new Chart(document.getElementById('barChart'), {
+      type: 'bar',
+      data: { labels: zones.map(z=>`Zone ${z.id}`), datasets: [{ label: 'Risk Index', data: [32,45,28,36,40,20], backgroundColor: ['#2cf1c2','#ffc857','#2cf1c2','#ffc857','#ff4b6e','#2cf1c2'] }] },
+      options: { plugins:{legend:{labels:{color:'#b8daff'}}}, scales:{x:{ticks:{color:'#9fc1df'}}, y:{ticks:{color:'#9fc1df'}}} }
+    });
+
+    donutChart = new Chart(document.getElementById('donutChart'), {
+      type: 'doughnut',
+      data: { labels: ['Safe','Warning','Danger'], datasets: [{ data: [4,2,0], backgroundColor: ['#32d17a','#ffc857','#ff4b6e'] }] },
+      options: { plugins:{legend:{labels:{color:'#b8daff'}}} }
+    });
+  }
+
+  // ------------------------------
+  // UI data binding helpers
+  // ------------------------------
+  function updateSummaryCards() {
+    const flooded = zones.filter(z => riskByWater(z.water) === 'Danger').length;
+    const warning = zones.filter(z => riskByWater(z.water) === 'Warning').length;
+    const safe = zones.length - flooded - warning;
+    const affected = zones.filter(z => z.water >= 45).reduce((a, z) => a + z.pop, 0);
+
+    const values = [
+      flooded, safe, warning, '3/4',
+      affected.toLocaleString(), `${state.water.toFixed(1)} cm`, state.rain,
+      state.running ? 'Running' : 'Paused'
+    ];
+
+    const holder = document.getElementById('summaryCards');
+    holder.innerHTML = summaryKeys.map((k, i) => `<article class="summary-card" title="${k}"><h4>${k}</h4><div class="value">${values[i]}</div></article>`).join('');
+  }
+
+  function updateSensorPanel() {
+    const sensors = [
+      ['Water Sensor', `${state.water.toFixed(1)} cm`],
+      ['Ultrasonic Sensor', `${(100 - state.water + (Math.random() * 5)).toFixed(1)} cm`],
+      ['Temperature Sensor', `${state.temperature.toFixed(1)} °C`],
+      ['Humidity Sensor', `${state.humidity.toFixed(0)} %`],
+      ['LED Status', ledByRisk(riskByWater(state.water))],
+      ['Rainfall', state.rain]
+    ];
+    document.getElementById('sensorGrid').innerHTML = sensors.map(([name, val]) => `<div class="widget"><small>${name}</small><div class="value" style="margin-top:6px; font-size:20px; font-weight:700;">${val}</div></div>`).join('');
+  }
+
+  function updateZoneStatus() {
+    const tbody = document.getElementById('zoneTable');
+    tbody.innerHTML = zones.map(z => {
+      const risk = riskByWater(z.water);
+      const cls = risk === 'Danger' ? 'danger' : risk === 'Warning' ? 'warning' : 'safe';
+      return `<tr>
+        <td>Zone ${z.id}: ${z.name}</td><td>${z.water.toFixed(1)}</td><td class="${cls}">${risk}</td><td>${z.pop.toLocaleString()}</td><td>${actionByRisk(risk)}</td>
+        <td><span class="status-led ${cls}"></span>${ledByRisk(risk)}</td>
+      </tr>`;
+    }).join('');
+
+    zones.forEach((z, i) => {
+      const risk = riskByWater(z.water);
+      const color = risk === 'Danger' ? 0xff4b6e : risk === 'Warning' ? 0xffc857 : 0x32d17a;
+      zoneIndicators[i].material.color.setHex(color);
+      zoneIndicators[i].material.emissive.setHex(color);
+    });
+  }
+
+  function updateEvacuationRecommendations() {
+    const dangerous = zones.filter(z => riskByWater(z.water) === 'Danger').map(z => `Zone ${z.id}`);
+    const warning = zones.filter(z => riskByWater(z.water) === 'Warning').map(z => `Zone ${z.id}`);
+
+    document.getElementById('routeList').innerHTML = ['Zone B → Shelter 1', 'Zone D → Shelter 2', 'Zone E → Medical Support Route'].map(v=>`• ${v}`).join('<br>');
+    document.getElementById('shelterList').innerHTML = 'Shelter 1 (Open), Shelter 2 (Busy), Shelter 3 (Open), Shelter 4 (Full)';
+    document.getElementById('closedRoads').innerHTML = state.water > 58 ? 'Riverside Rd., Bridge Access South' : 'Canal Lane (partial)';
+    document.getElementById('priorityZones').innerHTML = (dangerous.concat(warning)).join(', ') || 'None';
+    document.getElementById('evacTime').textContent = `${Math.max(10, 26 - warning.length * 3 - dangerous.length * 5)} min`;
+  }
+
+  function addAlertLog(msg) {
+    const time = new Date().toLocaleTimeString('en-GB');
+    state.alerts.unshift(`[${time}] ${msg}`);
+    if (state.alerts.length > 30) state.alerts.pop();
+    document.getElementById('logBox').innerHTML = state.alerts.map(i => `<div class="log-item">${i}</div>`).join('');
+  }
+
+  function updateReports() {
+    const mostCritical = [...zones].sort((a,b)=>b.water-a.water)[0];
+    const affected = zones.filter(z => z.water >= 45);
+    document.getElementById('cityStatus').textContent = affected.length > 2 ? 'Escalating Flood Risk' : 'Managed Simulation';
+    document.getElementById('criticalZone').textContent = `Zone ${mostCritical.id} (${mostCritical.name})`;
+    document.getElementById('zonesAffected').textContent = affected.length;
+    document.getElementById('nextAction').textContent = affected.length ? 'Pre-position evacuation transport near river corridor' : 'Continue monitoring';
+    document.getElementById('aiInsight').textContent = `Current analysis indicates rising flood risk in low-lying urban areas. Zone ${mostCritical.id} requires close monitoring. ${affected.length ? 'Evacuation preparation is recommended for residents near the river corridor.' : 'No immediate evacuation required, maintain readiness posture.'}`;
+  }
+
+  function updateChartData() {
+    state.lineSeries.push(state.water);
+    state.lineSeries.shift();
+    lineChart.data.datasets[0].data = state.lineSeries;
+    lineChart.update('none');
+
+    barChart.data.datasets[0].data = zones.map(z => Math.min(100, Math.round(z.water * 1.2)));
+    barChart.update('none');
+
+    const d = zones.filter(z=>riskByWater(z.water)==='Danger').length;
+    const w = zones.filter(z=>riskByWater(z.water)==='Warning').length;
+    donutChart.data.datasets[0].data = [zones.length - d - w, w, d];
+    donutChart.update('none');
+
+    document.getElementById('trendTemp').textContent = `${state.temperature.toFixed(1)} °C`;
+    document.getElementById('trendHumidity').textContent = `${state.humidity.toFixed(0)} %`;
+    document.getElementById('trendWater').textContent = `${state.water.toFixed(1)} cm`;
+    document.getElementById('predictionBox').textContent = state.water > 60
+      ? 'Mock Prediction: Flood crest likely within 40-60 minutes if heavy rain persists.'
+      : 'Mock Prediction: Manageable condition; monitor river corridor and school district.';
+  }
+
+  // ------------------------------
+  // Real-time simulation update loop
+  // ------------------------------
+  function updateSimulationData() {
+    if (!state.running) return;
+
+    const rainMode = state.rain === 'Heavy' ? 2.0 : state.rain === 'Moderate' ? 1.2 : 0.6;
+    state.water = Math.max(10, Math.min(100, state.water + (Math.random() - 0.35) * rainMode * 3));
+    state.temperature = Math.max(24, Math.min(37, state.temperature + (Math.random() - 0.5) * 1.2));
+    state.humidity = Math.max(50, Math.min(95, state.humidity + (Math.random() - 0.45) * 4));
+
+    zones.forEach(z => z.water = Math.max(10, Math.min(100, z.water + (state.water - z.water) * 0.18 + (Math.random()-0.5) * 5)));
+    waterMesh.position.y = 0.18 + (state.water / 100) * 3.4;
+
+    const r = Math.random();
+    if (r > 0.84) addAlertLog(`Water level rising in Zone ${zones[Math.floor(Math.random()*zones.length)].id}`);
+    if (r < 0.08) addAlertLog('Humidity exceeded threshold');
+    if (state.water > 72 && Math.random() > 0.6) addAlertLog('Critical flood risk detected near river corridor');
+
+    updateSummaryCards();
+    updateSensorPanel();
+    updateZoneStatus();
+    updateEvacuationRecommendations();
+    updateReports();
+    updateChartData();
+
+    const overall = riskByWater(state.water);
+    const led = document.getElementById('ledOverall');
+    led.className = `status-led ${overall === 'Danger' ? 'danger' : overall === 'Warning' ? 'warning' : 'safe'}`;
+    document.getElementById('overallText').textContent = overall === 'Danger' ? 'Critical city alert. Evacuation protocols active.' : overall === 'Warning' ? 'Warning posture. Increased monitoring.' : 'System nominal.';
+    document.getElementById('rainIntensity').textContent = state.rain;
+  }
+
+  function applyScenario(type) {
+    if (type === 'random') { state.water = 20 + Math.random() * 70; state.rain = ['Light','Moderate','Heavy'][Math.floor(Math.random()*3)]; addAlertLog('Random flood event injected'); }
+    if (type === 'rain') { state.rain = 'Heavy'; state.water += 12; addAlertLog('Heavy rain scenario activated'); }
+    if (type === 'critical') { state.rain = 'Heavy'; state.water = 82; zones[0].water = 90; zones[1].water = 75; addAlertLog('Critical alert scenario triggered for Zone A/B'); }
+    if (type === 'reset') {
+      state.water = 38; state.temperature = 30; state.humidity = 73; state.rain = 'Moderate';
+      [42,34,29,26,24,20].forEach((v,i)=>zones[i].water=v);
+      addAlertLog('Simulation reset to baseline');
+    }
+  }
+
+  function bindUI() {
+    document.querySelectorAll('.tab-btn').forEach(btn => btn.addEventListener('click', () => activateTab(btn.dataset.target)));
+    document.querySelectorAll('.nav-item').forEach(item => item.addEventListener('click', () => activateTab(item.dataset.tab, true)));
+
+    function activateTab(target, fromSide = false) {
+      document.querySelectorAll('.tab-btn').forEach(b => b.classList.toggle('active', b.dataset.target === target));
+      document.querySelectorAll('.nav-item').forEach(n => n.classList.toggle('active', n.dataset.tab === target));
+      document.querySelectorAll('.tab-section').forEach(s => s.classList.toggle('active', s.id === target || (target === 'city' && s.id === 'dashboard')));
+      if (fromSide && target === 'city') document.getElementById('dashboard').classList.add('active');
+    }
+
+    document.querySelectorAll('.controls button').forEach(btn => btn.addEventListener('click', () => {
+      const action = btn.dataset.action;
+      if (action === 'start') { state.running = true; addAlertLog('Simulation started'); }
+      else if (action === 'pause') { state.running = false; addAlertLog('Simulation paused'); }
+      else applyScenario(action);
+      updateSimulationData();
+    }));
+
+    document.getElementById('themeBtn').addEventListener('click', () => document.body.classList.toggle('light'));
+    document.getElementById('fullscreenBtn').addEventListener('click', () => document.documentElement.requestFullscreen?.());
+    document.getElementById('notifyBtn').addEventListener('click', () => addAlertLog('Operator checked notification center'));
+    document.getElementById('settingBtn').addEventListener('click', () => activateTab('settings'));
+    document.getElementById('exportBtn').addEventListener('click', () => {
+      addAlertLog('Mock report exported (simulation).');
+      alert('Mock Export: Report generated successfully.');
+    });
+  }
+
+  function startClock() {
+    const tick = () => document.getElementById('clock').textContent = new Date().toLocaleTimeString('en-GB');
+    tick();
+    setInterval(tick, 1000);
+  }
+
+  // Boot sequence
+  window.addEventListener('DOMContentLoaded', () => {
+    init3DCity();
+    renderCharts();
+    bindUI();
+    startClock();
+
+    addAlertLog('System online in simulation mode');
+    updateSimulationData();
+
+    timer = setInterval(updateSimulationData, 2400);
+
+    setTimeout(() => document.getElementById('loader').classList.add('hidden'), 1200);
+  });
+</script>
+</body>
+</html>
